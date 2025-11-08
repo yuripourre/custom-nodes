@@ -9,7 +9,7 @@ class MaskBlur:
             "required": {
                 "mask": ("MASK",),
                 "sigma": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 50.0, "step": 0.1}),
-                "kernel_size": ("INT", {"default": 0, "min": 0, "max": 101, "step": 2}),
+                "kernel_size": ("INT", {"default": 3, "min": 0, "max": 101, "step": 2}),
             }
         }
 
