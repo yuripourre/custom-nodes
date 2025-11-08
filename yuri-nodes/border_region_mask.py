@@ -15,7 +15,7 @@ class BorderMaskFromColor:
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("MASK",)
     FUNCTION = "create_mask"
     CATEGORY = "mask"
@@ -73,13 +73,10 @@ class BorderMaskFromColor:
                     result_mask |= region
                     processed_labels.add(seed_label)
 
-            # Convert to binary image (black/white)
-            # Found pixels (border-connected) = black (0), not included = white (1)
+            # Convert to binary mask
+            # Found pixels (border-connected) = 0, not included = 1
             binary = (~result_mask).astype(np.float32)
-
-            # Convert to RGB
-            result = np.stack([binary] * 3, axis=-1)
-            results.append(result)
+            results.append(binary)
 
         # Convert back to torch tensor
         output = torch.from_numpy(np.stack(results, axis=0))
