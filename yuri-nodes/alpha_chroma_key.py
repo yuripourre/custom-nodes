@@ -23,7 +23,7 @@ class AlphaChromaKeyNode:
     
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "Custom"
+    CATEGORY = "mask"
     
     # ---------- Conversion helpers ----------
     def tensor_to_pil(self, tensor_img: torch.Tensor) -> Image.Image:
