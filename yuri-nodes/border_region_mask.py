@@ -12,6 +12,10 @@ class BorderMaskFromColor:
                 "green": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
                 "blue": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
                 "tolerance": ("INT", {"default": 10, "min": 0, "max": 127, "step": 1}),
+                "process_left": ("BOOLEAN", {"default": True}),
+                "process_top": ("BOOLEAN", {"default": True}),
+                "process_right": ("BOOLEAN", {"default": True}),
+                "process_bottom": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -20,7 +24,7 @@ class BorderMaskFromColor:
     FUNCTION = "create_mask"
     CATEGORY = "mask"
 
-    def create_mask(self, image, red, green, blue, tolerance):
+    def create_mask(self, image, red, green, blue, tolerance, process_left, process_top, process_right, process_bottom):
         # Convert to numpy (B, H, W, C)
         img_np = image.cpu().numpy()
         batch_size, height, width, channels = img_np.shape
@@ -49,18 +53,32 @@ class BorderMaskFromColor:
             # Start with no pixels selected
             result_mask = np.zeros((height, width), dtype=bool)
 
-            # Get all border pixels
+            # Get all border pixels based on enabled borders
             border_coords = []
 
-            # Top and bottom
-            for x in range(width):
-                border_coords.append((0, x))
-                border_coords.append((height - 1, x))
+            # Top border
+            if process_top:
+                for x in range(width):
+                    border_coords.append((0, x))
 
-            # Left and right (excluding corners already added)
-            for y in range(1, height - 1):
-                border_coords.append((y, 0))
-                border_coords.append((y, width - 1))
+            # Bottom border
+            if process_bottom:
+                for x in range(width):
+                    border_coords.append((height - 1, x))
+
+            # Left border (excluding corners already added)
+            if process_left:
+                start_y = 1 if process_top else 0
+                end_y = height - 1 if process_bottom else height
+                for y in range(start_y, end_y):
+                    border_coords.append((y, 0))
+
+            # Right border (excluding corners already added)
+            if process_right:
+                start_y = 1 if process_top else 0
+                end_y = height - 1 if process_bottom else height
+                for y in range(start_y, end_y):
+                    border_coords.append((y, width - 1))
 
             # Find regions that touch the border
             processed_labels = set()
