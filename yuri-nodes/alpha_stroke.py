@@ -1,7 +1,7 @@
 from typing import Dict, Tuple
-from PIL import Image, ImageFilter
 import numpy as np
 import torch
+from scipy import ndimage
 
 class AlphaStrokeNode:
     @classmethod
@@ -11,7 +11,6 @@ class AlphaStrokeNode:
                 "image": ("IMAGE",),
                 "stroke_size": ("INT", {"default": 1, "min": 0, "max": 50, "step": 1}),
                 "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "antialias": ("BOOLEAN", {"default": True}),
             },
             "optional": {
                 "red": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
@@ -25,7 +24,7 @@ class AlphaStrokeNode:
     FUNCTION = "apply_alpha_stroke"
     CATEGORY = "image/filter"
 
-    def apply_alpha_stroke(self, image, stroke_size, opacity, antialias, red=0, green=0, blue=0):
+    def apply_alpha_stroke(self, image, stroke_size, opacity, red=0, green=0, blue=0):
         # Convert to numpy (B, H, W, C)
         img_np = image.cpu().numpy()
         batch_size, height, width, channels = img_np.shape
@@ -43,62 +42,54 @@ class AlphaStrokeNode:
             img_single = img_np[b]  # [H, W, C]
 
             # Extract alpha channel to determine foreground/background
-            # Transparent pixels (alpha < threshold) = background, opaque = foreground
             alpha_channel = img_single[:, :, 3]
             ALPHA_THRESHOLD = 0.5
 
-            # Create mask: pixels that are NOT transparent (keep foreground pixels)
-            # Transparent pixels = 0, opaque pixels = 255
-            foreground_mask = (alpha_channel >= ALPHA_THRESHOLD).astype(np.uint8) * 255
-            mask_img = Image.fromarray(foreground_mask, mode="L")
+            # Create binary mask: pixels that are NOT transparent
+            binary_mask = (alpha_channel >= ALPHA_THRESHOLD).astype(np.float32)
 
-            # Store original mask
-            original_mask_arr = np.array(mask_img, dtype=np.float32) / 255.0
+            # Detect contour/edge pixels: only pixels that are TRANSPARENT and have at least one OPAQUE neighbor
+            # This ensures we only get the contour OUTSIDE the shape, not on image edges
+            transparent_mask = (alpha_channel < ALPHA_THRESHOLD).astype(np.float32)
+            contour_mask = np.zeros_like(binary_mask, dtype=np.float32)
 
-            # Apply stroke expansion if needed
-            if stroke_size > 0:
-                # Use MaxFilter with correct kernel size for stroke
-                # MaxFilter kernel size should be (stroke_size * 2 + 1) for stroke pixels
-                kernel_size = stroke_size * 2 + 1
-                expanded_mask_img = mask_img.filter(ImageFilter.MaxFilter(kernel_size))
+            # Check 8-connected neighbors to find edge pixels
+            # A contour pixel is transparent AND has at least one opaque neighbor
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    if dx == 0 and dy == 0:
+                        continue
+                    # Shift the binary mask (opaque pixels)
+                    shifted_opaque = np.roll(np.roll(binary_mask, dy, axis=0), dx, axis=1)
+                    # Contour pixel if current pixel is transparent AND neighbor is opaque
+                    contour_mask = np.maximum(contour_mask, transparent_mask * shifted_opaque)
 
-                # Calculate stroke area (expanded minus original)
-                expanded_mask_arr = np.array(expanded_mask_img, dtype=np.float32) / 255.0
-                stroke_area = expanded_mask_arr - original_mask_arr
-                stroke_area = np.clip(stroke_area, 0, 1)
+            # Apply stroke_size to dilate the contour if needed
+            if stroke_size > 0 and np.any(contour_mask > 0):
+                # Use scipy dilation with 8-connected structure
+                structure = ndimage.generate_binary_structure(2, 2)
+                # Dilate by stroke_size iterations (size 1 = 1 pixel thick, size 2 = 2 pixels thick)
+                contour_mask = ndimage.binary_dilation(
+                    contour_mask.astype(bool),
+                    structure=structure,
+                    iterations=stroke_size
+                ).astype(np.float32)
 
-                # Apply antialiasing to stroke if requested
-                if antialias:
-                    stroke_img = Image.fromarray((stroke_area * 255).astype(np.uint8), mode="L")
-                    antialiased_stroke = stroke_img.filter(ImageFilter.GaussianBlur(radius=0.5))
-                    stroke_area = np.array(antialiased_stroke, dtype=np.float32) / 255.0
+            # Create new transparent image (all zeros)
+            result_arr = np.zeros((height, width, 4), dtype=np.float32)
 
-                # Apply stroke color with opacity
-                stroke_color = np.array([red, green, blue], dtype=np.float32) / 255.0
+            # Apply contour color with opacity
+            stroke_color = np.array([red, green, blue], dtype=np.float32) / 255.0
 
-                # Get original image array
-                result_arr = img_single.copy()
+            # Set RGB channels to stroke color where contour exists
+            for c in range(3):
+                result_arr[:, :, c] = stroke_color[c] * contour_mask * opacity
 
-                # Apply stroke color to RGB channels where stroke exists
-                for c in range(3):
-                    original_channel = img_single[:, :, c]
-                    stroke_channel = stroke_color[c]
+            # Set alpha channel: contour area becomes opaque based on opacity
+            result_arr[:, :, 3] = contour_mask * opacity
 
-                    # Blend: original * (1 - stroke_area * opacity) + stroke_color * (stroke_area * opacity)
-                    blended = (original_channel * (1.0 - stroke_area * opacity) +
-                              stroke_channel * (stroke_area * opacity))
-
-                    result_arr[:, :, c] = np.clip(blended, 0.0, 1.0)
-
-                # Update alpha channel: make stroke area opaque, keep background transparent
-                # The expanded mask defines what should be opaque (foreground + stroke)
-                result_arr[:, :, 3] = np.clip(expanded_mask_arr, 0.0, 1.0)
-
-                # Convert back to tensor [H,W,C]
-                result_tensor = torch.from_numpy(result_arr)
-            else:
-                # No stroke: return original
-                result_tensor = torch.from_numpy(img_single)
+            # Convert back to tensor [H,W,C]
+            result_tensor = torch.from_numpy(result_arr)
 
             results.append(result_tensor)
 
