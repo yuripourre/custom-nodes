@@ -18,6 +18,7 @@ class AlphaChromaKeyNode:
                 "inner_outline": ("INT", {"default": 0, "min": 0, "max": 200}),
                 "outline": ("INT", {"default": 0, "min": 0, "max": 200}),
                 "antialias": ("BOOLEAN", {"default": True}),
+                "antialias_strength": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 10.0, "step": 0.1}),
                 "invert_output": ("BOOLEAN", {"default": False})
             }
         }
@@ -58,7 +59,7 @@ class AlphaChromaKeyNode:
         return tensor
     
     # ---------- Main processing ----------
-    def process(self, image, red=0, green=0, blue=0, variance=0, inner_outline=0, outline=0, antialias=True, invert_output=False):
+    def process(self, image, red=0, green=0, blue=0, variance=0, inner_outline=0, outline=0, antialias=True, antialias_strength=1.5, invert_output=False):
         
         # Handle different possible image formats
         if isinstance(image, torch.Tensor):
@@ -153,8 +154,8 @@ class AlphaChromaKeyNode:
         if antialias:
             # Convert back to PIL for filtering
             final_mask_img = Image.fromarray((final_mask_arr * 255).astype(np.uint8), mode="L")
-            # Apply light blur for antialiasing
-            antialiased_mask = final_mask_img.filter(ImageFilter.GaussianBlur(radius=0.5))
+            # Apply customizable blur for antialiasing
+            antialiased_mask = final_mask_img.filter(ImageFilter.GaussianBlur(radius=antialias_strength))
             antialiased_mask_arr = np.array(antialiased_mask, dtype=np.float32) / 255.0
             
             # Only use antialiased mask where pixels were modified

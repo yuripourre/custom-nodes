@@ -16,9 +16,13 @@ class AlphaChromaKeyEnhancedNode:
                 "green": ("INT", {"default": 0, "min": 0, "max": 255}),
                 "blue": ("INT", {"default": 0, "min": 0, "max": 255}),
                 "variance": ("INT", {"default": 0, "min": 0, "max": 255}),
+                "spill_removal": ("BOOLEAN", {"default": True}),
+                "spill_tolerance": ("INT", {"default": 30, "min": 0, "max": 255}),
+                "spill_strength": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.1}),
                 "inner_outline": ("INT", {"default": 0, "min": 0, "max": 200}),
                 "outline": ("INT", {"default": 0, "min": 0, "max": 200}),
                 "antialias": ("BOOLEAN", {"default": True}),
+                "antialias_strength": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 10.0, "step": 0.1}),
                 "invert_output": ("BOOLEAN", {"default": False}),
                 "process_left": ("BOOLEAN", {"default": True}),
                 "process_top": ("BOOLEAN", {"default": True}),
@@ -63,8 +67,8 @@ class AlphaChromaKeyEnhancedNode:
         return tensor
     
     # ---------- Main processing ----------
-    def process(self, image, red=0, green=0, blue=0, variance=0, inner_outline=0, outline=0, 
-                antialias=True, invert_output=False, process_left=True, process_top=True, 
+    def process(self, image, red=0, green=0, blue=0, variance=0, spill_removal=True, spill_tolerance=30, spill_strength=0.8,
+                inner_outline=0, outline=0, antialias=True, antialias_strength=1.5, invert_output=False, process_left=True, process_top=True, 
                 process_right=True, process_bottom=True):
         
         # Handle different possible image formats
@@ -326,8 +330,8 @@ class AlphaChromaKeyEnhancedNode:
         if antialias:
             # Convert back to PIL for filtering
             final_mask_img = Image.fromarray((final_mask_arr * 255).astype(np.uint8), mode="L")
-            # Apply light blur for antialiasing
-            antialiased_mask = final_mask_img.filter(ImageFilter.GaussianBlur(radius=0.5))
+            # Apply customizable blur for antialiasing
+            antialiased_mask = final_mask_img.filter(ImageFilter.GaussianBlur(radius=antialias_strength))
             antialiased_mask_arr = np.array(antialiased_mask, dtype=np.float32) / 255.0
             
             # Only use antialiased mask where pixels were modified
@@ -336,6 +340,50 @@ class AlphaChromaKeyEnhancedNode:
         
         # Combine with original alpha channel
         new_alpha = orig_alpha * final_mask_arr
+        
+        # Apply color spill removal in edge regions
+        # This removes background color glow/fringe without affecting the main mask
+        if spill_removal and spill_tolerance > 0:
+            # Identify edge region pixels (semi-transparent areas where spill occurs)
+            # Spill removal should only affect pixels in the edge transition zone
+            edge_alpha_threshold_low = 0.1  # Pixels with alpha below this are fully transparent
+            edge_alpha_threshold_high = 0.9  # Pixels with alpha above this are fully opaque
+            edge_region = (new_alpha > edge_alpha_threshold_low) & (new_alpha < edge_alpha_threshold_high)
+            
+            # Also include pixels that are close to the background color (potential spill)
+            # Use spill_tolerance (higher than variance) to catch spill without affecting main mask
+            potential_spill = euclidean_dist <= spill_tolerance
+            
+            # Combine: edge region AND potential spill
+            spill_mask = edge_region & potential_spill
+            
+            if np.any(spill_mask):
+                # Calculate spill factor: how close to background color (0 = exact match, 1 = no match)
+                # Normalize by spill_tolerance
+                spill_distances = euclidean_dist[spill_mask]
+                spill_factor = np.clip(spill_distances / max(spill_tolerance, 1.0), 0.0, 1.0)
+                
+                # Calculate how much to reduce the background color component
+                # spill_strength controls how aggressive the removal is
+                reduction_factor = (1.0 - spill_factor) * spill_strength
+                
+                # For each RGB channel, reduce the background color component
+                for c in range(3):
+                    channel = arr[..., c].astype(np.float32)
+                    target_val = target[c]
+                    
+                    # Calculate how much this pixel matches the background color
+                    channel_diff = np.abs(channel[spill_mask] - target_val) / 255.0
+                    
+                    # Reduce background color component more if pixel is closer to background
+                    # This desaturates/removes the colored glow
+                    reduction = reduction_factor * (1.0 - channel_diff)
+                    
+                    # Blend towards neutral (reduce the background color component)
+                    # Simple approach: reduce the background color component
+                    channel[spill_mask] = channel[spill_mask] * (1.0 - reduction) + target_val * reduction * 0.3
+                    
+                    arr[..., c] = np.clip(channel, 0, 255).astype(np.uint8)
         
         # Update alpha channel
         arr[..., 3] = np.clip(new_alpha * 255.0, 0, 255).astype(np.uint8)
