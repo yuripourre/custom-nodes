@@ -15,6 +15,7 @@ class AlphaChromaKeyNode:
                 "green": ("INT", {"default": 0, "min": 0, "max": 255}),
                 "blue": ("INT", {"default": 0, "min": 0, "max": 255}),
                 "variance": ("INT", {"default": 0, "min": 0, "max": 255}),
+                "inner_outline": ("INT", {"default": 0, "min": 0, "max": 200}),
                 "outline": ("INT", {"default": 0, "min": 0, "max": 200}),
                 "antialias": ("BOOLEAN", {"default": True}),
                 "invert_output": ("BOOLEAN", {"default": False})
@@ -57,7 +58,7 @@ class AlphaChromaKeyNode:
         return tensor
     
     # ---------- Main processing ----------
-    def process(self, image, red=0, green=0, blue=0, variance=0, outline=0, antialias=True, invert_output=False):
+    def process(self, image, red=0, green=0, blue=0, variance=0, inner_outline=0, outline=0, antialias=True, invert_output=False):
         
         # Handle different possible image formats
         if isinstance(image, torch.Tensor):
@@ -72,6 +73,9 @@ class AlphaChromaKeyNode:
         w, h = img.size
         arr = np.array(img)
         rgb = arr[..., :3].astype(np.int16)
+        
+        # Store original alpha channel for comparison
+        orig_alpha = arr[..., 3].astype(np.float32) / 255.0
         
         # Target color & distance calculation
         target = np.array([red, green, blue], dtype=np.float32)
@@ -95,8 +99,19 @@ class AlphaChromaKeyNode:
         mask[keep_pixels] = 255
         mask_img = Image.fromarray(mask, mode="L")
         
-        # Store the original mask for outline processing
+        # Apply inner outline erosion if needed (before outline expansion)
+        if inner_outline > 0:
+            # Use MinFilter with correct kernel size for exact pixel erosion
+            # MinFilter kernel size should be (inner_outline * 2 + 1) for inner_outline pixels
+            kernel_size = inner_outline * 2 + 1
+            mask_img = mask_img.filter(ImageFilter.MinFilter(kernel_size))
+        
+        # Store the mask after inner outline for outline processing
         original_mask_arr = np.array(mask_img, dtype=np.float32) / 255.0
+        
+        # Track which pixels will be modified
+        # A pixel is modified if its alpha or RGB will change from the original
+        modified_pixels = np.zeros((h, w), dtype=bool)
         
         # Apply outline expansion if needed
         if outline > 0:
@@ -109,6 +124,9 @@ class AlphaChromaKeyNode:
             expanded_mask_arr = np.array(expanded_mask_img, dtype=np.float32) / 255.0
             outline_area = expanded_mask_arr - original_mask_arr
             outline_area = np.clip(outline_area, 0, 1)
+            
+            # Mark outline area pixels as modified (RGB will change)
+            modified_pixels |= (outline_area > 0)
             
             # Fill outline area with the chroma key color
             background_color = np.array([red, green, blue], dtype=np.uint8)
@@ -124,16 +142,26 @@ class AlphaChromaKeyNode:
             final_mask_arr = original_mask_arr
             expanded_mask_img = mask_img
         
-        # Apply antialiasing only if requested and only to the final edges
+        # Calculate which pixels will have their alpha modified
+        # Alpha is modified if the mask changes the effective alpha value
+        original_effective_alpha = orig_alpha  # What alpha would be without mask
+        new_effective_alpha = orig_alpha * final_mask_arr  # What alpha will be with mask
+        alpha_changed = np.abs(original_effective_alpha - new_effective_alpha) > 0.001
+        modified_pixels |= alpha_changed
+        
+        # Apply antialiasing only if requested and only to modified pixels
         if antialias:
             # Convert back to PIL for filtering
             final_mask_img = Image.fromarray((final_mask_arr * 255).astype(np.uint8), mode="L")
             # Apply light blur for antialiasing
             antialiased_mask = final_mask_img.filter(ImageFilter.GaussianBlur(radius=0.5))
-            final_mask_arr = np.array(antialiased_mask, dtype=np.float32) / 255.0
+            antialiased_mask_arr = np.array(antialiased_mask, dtype=np.float32) / 255.0
+            
+            # Only use antialiased mask where pixels were modified
+            # For unmodified pixels, use the original mask (no antialiasing)
+            final_mask_arr = np.where(modified_pixels, antialiased_mask_arr, final_mask_arr)
         
         # Combine with original alpha channel
-        orig_alpha = arr[..., 3].astype(np.float32) / 255.0
         new_alpha = orig_alpha * final_mask_arr
         
         # Update alpha channel
