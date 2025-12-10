@@ -287,11 +287,13 @@ class AlphaChromaKeyEnhancedNode:
             
             # Apply erosion to the entire mask (not just edge pixels)
             # This ensures proper inner outline width
-            mask_arr = np.where(eroded_binary, eroded_mask_arr, mask_arr)
+            # CRITICAL: Use eroded_mask_arr directly - it's already 0.0 or 1.0 based on erosion
+            mask_arr = eroded_mask_arr.copy()
             
             # CRITICAL: Restore interior pixels - they should NEVER change
             # Interior pixels are those that were fully opaque and remain fully opaque after erosion
             # We only restore pixels that were interior BEFORE erosion and are still interior AFTER
+            # This prevents interior pixels from being affected by erosion
             still_interior = interior_mask & (eroded_mask_arr > 0.5)
             mask_arr = np.where(still_interior, original_mask_before_outline, mask_arr)
             
@@ -311,10 +313,29 @@ class AlphaChromaKeyEnhancedNode:
                     new_edge_mask |= (new_binary_mask != shifted)
             
             # Mark new edge pixels and their neighbors for antialiasing
-            # Dilate slightly to include transition zone around edges
+            # Dilate to include transition zone around edges - use antialias_strength to determine width
             edge_structure = ndimage.generate_binary_structure(2, 2)
-            edge_region_for_antialias = ndimage.binary_dilation(new_edge_mask, structure=edge_structure, iterations=1).astype(bool)
+            # Dilate more aggressively to capture the full transition zone for antialiasing
+            # Use a wider region to ensure smooth transitions - scale with antialias_strength
+            antialias_dilation_iterations = max(2, int(antialias_strength * 2) + 1)
+            edge_region_for_antialias = ndimage.binary_dilation(new_edge_mask, structure=edge_structure, iterations=antialias_dilation_iterations).astype(bool)
             modified_pixels |= edge_region_for_antialias
+            
+            # Apply antialiasing immediately after inner outline erosion to smooth the hard binary edges
+            # This is critical because inner outline creates hard binary (0.0/1.0) edges that need smoothing
+            if antialias:
+                mask_img_temp = Image.fromarray((mask_arr * 255).astype(np.uint8), mode="L")
+                # Apply Gaussian blur to smooth the edges - use the full antialias_strength
+                antialiased_mask_temp = mask_img_temp.filter(ImageFilter.GaussianBlur(radius=antialias_strength))
+                antialiased_mask_arr_temp = np.array(antialiased_mask_temp, dtype=np.float32) / 255.0
+                
+                # Apply antialiasing to the edge region and transition zone
+                # This replaces the hard binary edges with smooth gradients
+                mask_arr = np.where(edge_region_for_antialias, antialiased_mask_arr_temp, mask_arr)
+                
+                # CRITICAL: Restore interior pixels - they should NEVER change
+                # Interior pixels should remain at their original values (no antialiasing needed)
+                mask_arr = np.where(still_interior, original_mask_before_outline, mask_arr)
             
             mask_img = Image.fromarray((mask_arr * 255).astype(np.uint8), mode="L")
         
@@ -433,6 +454,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AlphaChromaKeyEnhancedNode": "Alpha Chroma Key Enhanced"
+    "AlphaChromaKeyEnhancedNode": "🫟Alpha Chroma Key Enhanced"
 }
 
