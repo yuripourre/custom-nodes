@@ -13,8 +13,8 @@ class AddBackground:
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "IMAGE")
+    RETURN_NAMES = ("IMAGE", "background")
     FUNCTION = "add_background"
     CATEGORY = "image"
 
@@ -36,6 +36,7 @@ class AddBackground:
             channels = 4
 
         results = []
+        background_results = []
 
         for b in range(batch_size):
             # Extract RGB and alpha channels for this batch item
@@ -58,10 +59,15 @@ class AddBackground:
             result_tensor = torch.from_numpy(result_rgb.astype(np.float32))
             results.append(result_tensor)
 
+            # Create background color image for preview
+            background_tensor = torch.from_numpy(background.astype(np.float32))
+            background_results.append(background_tensor)
+
         # Stack results into batch [B, H, W, 3]
         output = torch.stack(results, dim=0)
+        background_output = torch.stack(background_results, dim=0)
 
-        return (output,)
+        return (output, background_output)
 
 NODE_CLASS_MAPPINGS = {
     "AddBackground": AddBackground

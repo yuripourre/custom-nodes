@@ -16,8 +16,8 @@ class AlphaBackground:
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "IMAGE")
+    RETURN_NAMES = ("IMAGE", "background")
     FUNCTION = "create_alpha"
     CATEGORY = "mask"
 
@@ -107,7 +107,22 @@ class AlphaBackground:
         arr[..., 3] = np.clip(new_alpha * 255.0, 0, 255).astype(np.uint8)
 
         out_img = Image.fromarray(arr, mode="RGBA")
-        return (self.pil_to_tensor(out_img),)
+        
+        # Create background color image for preview
+        # Convert RGB values from 0-255 to 0.0-1.0 range
+        bg_r = red / 255.0
+        bg_g = green / 255.0
+        bg_b = blue / 255.0
+        
+        # Create solid color background matching image dimensions
+        background_arr = np.full((h, w, 3), [bg_r, bg_g, bg_b], dtype=np.float32)
+        background_tensor = torch.from_numpy(background_arr)
+        
+        # Add batch dimension [1, H, W, 3]
+        if background_tensor.ndim == 3:
+            background_tensor = background_tensor.unsqueeze(0)
+        
+        return (self.pil_to_tensor(out_img), background_tensor)
 
 NODE_CLASS_MAPPINGS = {
     "AlphaBackground": AlphaBackground
