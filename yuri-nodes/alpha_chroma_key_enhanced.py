@@ -263,27 +263,63 @@ class AlphaChromaKeyEnhancedNode:
             # Interior pixels and holes should never be processed
             edge_region_mask = edge_region_mask & ~interior_mask & ~hole_mask
         
+        # Track which pixels will be modified
+        modified_pixels = np.zeros((h, w), dtype=bool)
+        
         # Apply inner outline erosion if needed (before outline expansion)
         if inner_outline > 0 and np.any(edge_mask):
-            kernel_size = inner_outline * 2 + 1
-            eroded_mask_img = mask_img.filter(ImageFilter.MinFilter(kernel_size))
-            eroded_mask_arr = np.array(eroded_mask_img, dtype=np.float32) / 255.0
+            # Apply erosion to the entire mask using iterative erosion for proper width
+            # Use scipy's binary_erosion with iterations to get the correct inner outline width
+            binary_mask_for_erosion = (mask_arr > 0.5).astype(bool)
+            structure = ndimage.generate_binary_structure(2, 2)
             
-            # Only apply erosion to edge pixels (not interior pixels)
-            # Edge pixels that are part of opaque regions can be eroded
-            erosion_applicable = edge_mask & (mask_arr > 0.5)
-            mask_arr = np.where(erosion_applicable, eroded_mask_arr, mask_arr)
+            # Apply erosion iteratively to achieve the desired inner outline width
+            eroded_binary = binary_mask_for_erosion.copy()
+            for _ in range(inner_outline):
+                eroded_binary = ndimage.binary_erosion(eroded_binary, structure=structure)
+            
+            # Convert back to float mask
+            eroded_mask_arr = eroded_binary.astype(np.float32)
+            
+            # Calculate which pixels were modified by inner outline
+            inner_outline_changes = (mask_arr > 0.5) & ~eroded_binary
+            modified_pixels |= inner_outline_changes
+            
+            # Apply erosion to the entire mask (not just edge pixels)
+            # This ensures proper inner outline width
+            mask_arr = np.where(eroded_binary, eroded_mask_arr, mask_arr)
             
             # CRITICAL: Restore interior pixels - they should NEVER change
-            mask_arr = np.where(interior_mask, original_mask_before_outline, mask_arr)
+            # Interior pixels are those that were fully opaque and remain fully opaque after erosion
+            # We only restore pixels that were interior BEFORE erosion and are still interior AFTER
+            still_interior = interior_mask & (eroded_mask_arr > 0.5)
+            mask_arr = np.where(still_interior, original_mask_before_outline, mask_arr)
+            
+            # Detect new edge pixels after inner outline erosion for antialiasing
+            # These are the pixels that are now on the boundary after erosion
+            new_binary_mask = (mask_arr > 0.5).astype(bool)
+            new_edge_mask = np.zeros_like(new_binary_mask, dtype=bool)
+            
+            # Check 8-connected neighbors to find new edge pixels
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    if dx == 0 and dy == 0:
+                        continue
+                    # Shift the binary mask
+                    shifted = np.roll(np.roll(new_binary_mask, dy, axis=0), dx, axis=1)
+                    # Edge pixel: pixel that differs from at least one neighbor
+                    new_edge_mask |= (new_binary_mask != shifted)
+            
+            # Mark new edge pixels and their neighbors for antialiasing
+            # Dilate slightly to include transition zone around edges
+            edge_structure = ndimage.generate_binary_structure(2, 2)
+            edge_region_for_antialias = ndimage.binary_dilation(new_edge_mask, structure=edge_structure, iterations=1).astype(bool)
+            modified_pixels |= edge_region_for_antialias
             
             mask_img = Image.fromarray((mask_arr * 255).astype(np.uint8), mode="L")
         
         # Store the mask after inner outline for outline processing
         original_mask_arr = mask_arr.copy()
-        
-        # Track which pixels will be modified
-        modified_pixels = np.zeros((h, w), dtype=bool)
         
         # Apply outline expansion if needed
         if outline > 0 and np.any(edge_mask):
