@@ -65,15 +65,22 @@ class AlphaStrokeNode:
                     contour_mask = np.maximum(contour_mask, transparent_mask * shifted_opaque)
 
             # Apply stroke_size to dilate the contour if needed
-            if stroke_size > 0 and np.any(contour_mask > 0):
+            # contour_mask is already 1 pixel thick, so we dilate by (stroke_size - 1) to get the desired thickness
+            if stroke_size > 1 and np.any(contour_mask > 0):
                 # Use scipy dilation with 8-connected structure
                 structure = ndimage.generate_binary_structure(2, 2)
-                # Dilate by stroke_size iterations (size 1 = 1 pixel thick, size 2 = 2 pixels thick)
+                # Dilate by (stroke_size - 1) iterations to achieve the desired thickness
+                # stroke_size=1 → no dilation (1 pixel thick)
+                # stroke_size=2 → dilate by 1 (2 pixels thick)
+                # stroke_size=3 → dilate by 2 (3 pixels thick)
                 contour_mask = ndimage.binary_dilation(
                     contour_mask.astype(bool),
                     structure=structure,
-                    iterations=stroke_size
+                    iterations=stroke_size - 1
                 ).astype(np.float32)
+            elif stroke_size == 0:
+                # No stroke requested
+                contour_mask = np.zeros_like(binary_mask, dtype=np.float32)
 
             # Create new transparent image (all zeros)
             result_arr = np.zeros((height, width, 4), dtype=np.float32)
