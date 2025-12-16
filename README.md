@@ -5,3 +5,4 @@ Some ComfyUI custom nodes
 To install the nodes, you need to copy the yuri-nodes folder to the `ComfyUI/custom_nodes` folder.
 The nodes will appear on ComfyUI the next time the ComfyUI server is started.
 
+Hint: You can add the yuri-nodes to the custom_nodes as a symbolic link.
