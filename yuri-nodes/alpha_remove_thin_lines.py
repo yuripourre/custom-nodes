@@ -20,7 +20,7 @@ class AlphaRemoveThinLinesNode:
     
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "image/processing"
+    CATEGORY = "alpha"
     
     def tensor_to_pil(self, tensor_img: torch.Tensor) -> Image.Image:
         """Convert ComfyUI tensor [1,H,W,C] or [H,W,C] to PIL RGBA."""
@@ -134,7 +134,11 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AlphaRemoveThinLinesNode": "Alpha Remove Thin Lines"
+    "AlphaRemoveThinLinesNode": "🫟 Alpha Remove Thin Lines"
 }
+
+
+
+
 
 

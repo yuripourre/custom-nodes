@@ -33,7 +33,7 @@ class AlphaChromaKeyEnhancedNode:
     
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "mask"
+    CATEGORY = "alpha"
     
     # ---------- Conversion helpers ----------
     def tensor_to_pil(self, tensor_img: torch.Tensor) -> Image.Image:
@@ -454,6 +454,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AlphaChromaKeyEnhancedNode": "🫟Alpha Chroma Key Enhanced"
+    "AlphaChromaKeyEnhancedNode": "🫟 Alpha Chroma Key Enhanced"
 }
 

@@ -18,7 +18,7 @@ class AlphaEdgeDilate:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "dilate_alpha_edges"
-    CATEGORY = "image/postprocessing"
+    CATEGORY = "alpha"
 
     def dilate_alpha_edges(self, image, iterations, kernel_size, antialias=True):
         # Convert tensor to numpy
@@ -124,6 +124,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AlphaEdgeDilate": "Alpha Edge Dilate"
+    "AlphaEdgeDilate": "🫟 Alpha Edge Dilate"
 }
 

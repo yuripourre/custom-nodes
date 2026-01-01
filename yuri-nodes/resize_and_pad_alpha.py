@@ -23,7 +23,7 @@ class ResizeAndPadAlphaNode:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("IMAGE",)
     FUNCTION = "resize_and_pad"
-    CATEGORY = "image/transform"
+    CATEGORY = "alpha"
 
     def tensor_to_pil(self, tensor_img: torch.Tensor) -> Image.Image:
         """Convert ComfyUI tensor [H,W,C] to PIL RGBA."""
@@ -194,6 +194,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ResizeAndPadAlphaNode": "Resize And Pad Alpha"
+    "ResizeAndPadAlphaNode": "🫟 Resize And Pad Alpha"
 }
 

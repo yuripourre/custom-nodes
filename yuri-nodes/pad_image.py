@@ -89,6 +89,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PadImageNode": "Pad Image"
+    "PadImageNode": "🫟 Pad Image"
 }
 

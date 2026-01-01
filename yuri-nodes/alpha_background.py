@@ -19,7 +19,7 @@ class AlphaBackground:
     RETURN_TYPES = ("IMAGE", "IMAGE")
     RETURN_NAMES = ("IMAGE", "background")
     FUNCTION = "create_alpha"
-    CATEGORY = "mask"
+    CATEGORY = "alpha"
 
     def tensor_to_pil(self, tensor_img: torch.Tensor) -> Image.Image:
         """Convert ComfyUI tensor [B,H,W,C] or [H,W,C] to PIL RGBA."""
@@ -129,6 +129,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AlphaBackground": "Alpha Background"
+    "AlphaBackground": "🫟 Alpha Background"
 }
 

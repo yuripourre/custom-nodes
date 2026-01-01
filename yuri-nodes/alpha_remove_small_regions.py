@@ -20,7 +20,7 @@ class AlphaRemoveSmallRegionsNode:
     
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "image/processing"
+    CATEGORY = "alpha"
     
     def tensor_to_pil(self, tensor_img: torch.Tensor) -> Image.Image:
         """Convert ComfyUI tensor [1,H,W,C] or [H,W,C] to PIL RGBA."""
@@ -128,6 +128,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AlphaRemoveSmallRegionsNode": "Alpha Remove Small Regions"
+    "AlphaRemoveSmallRegionsNode": "🫟 Alpha Remove Small Regions"
 }
 

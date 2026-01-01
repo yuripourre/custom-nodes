@@ -26,7 +26,7 @@ class AlphaStrokeNode:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("IMAGE",)
     FUNCTION = "apply_alpha_stroke"
-    CATEGORY = "image/filter"
+    CATEGORY = "alpha"
 
     def _apply_falloff_curve(self, mask, curve_type):
         """Apply different falloff curves to the stroke mask for artistic control."""
@@ -200,6 +200,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AlphaStrokeNode": "Alpha Stroke"
+    "AlphaStrokeNode": "🫟 Alpha Stroke"
 }
 

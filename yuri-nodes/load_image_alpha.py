@@ -22,7 +22,7 @@ class LoadImageAlpha:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("IMAGE",)
     FUNCTION = "load_image"
-    CATEGORY = "image"
+    CATEGORY = "alpha"
 
     def load_image(self, image):
         # Get the full path to the image file
@@ -72,6 +72,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "LoadImageAlpha": "Load Image (Alpha)"
+    "LoadImageAlpha": "🫟 Load Image (Alpha)"
 }
 
