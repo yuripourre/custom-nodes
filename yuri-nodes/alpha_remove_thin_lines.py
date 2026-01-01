@@ -2,7 +2,6 @@ from typing import Dict, Tuple
 from PIL import Image
 import numpy as np
 import torch
-from scipy import ndimage
 
 class AlphaRemoveThinLinesNode:
     @classmethod
@@ -11,9 +10,11 @@ class AlphaRemoveThinLinesNode:
             "required": {
                 "image": ("IMAGE",),
                 "line_thickness": ("INT", {"default": 2, "min": 1, "max": 20, "step": 1}),
+                "horizontal": ("BOOLEAN", {"default": True}),
+                "vertical": ("BOOLEAN", {"default": True}),
+                "alpha_tolerance": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
             },
             "optional": {
-                "iterations": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
                 "preserve_alpha": ("BOOLEAN", {"default": True}),
             }
         }
@@ -52,13 +53,73 @@ class AlphaRemoveThinLinesNode:
         
         return tensor
     
-    def process(self, image, line_thickness=2, iterations=1, preserve_alpha=True):
+    def process_scanline_horizontal(self, alpha, line_thickness, alpha_tolerance):
         """
-        Remove thin lines from alpha channel using morphological opening.
-        This works even when lines are connected to larger blobs.
+        Process horizontal scanlines: scan row by row, find segments,
+        and remove segments thinner than line_thickness.
+        """
+        h, w = alpha.shape
+        removal_mask = np.zeros_like(alpha, dtype=bool)
         
-        Morphological opening (erosion + dilation) removes thin protrusions
-        and thin lines while preserving larger regions.
+        for y in range(h):
+            row = alpha[y, :]
+            # Find segments where alpha >= alpha_tolerance
+            above_threshold = row >= alpha_tolerance
+            
+            # Find segment boundaries
+            # Start of segment: transition from False to True
+            segment_starts = np.where(np.diff(np.concatenate(([False], above_threshold, [False]))))[0]
+            
+            # Process pairs of start/end indices
+            for i in range(0, len(segment_starts), 2):
+                if i + 1 < len(segment_starts):
+                    start_idx = segment_starts[i]
+                    end_idx = segment_starts[i + 1]
+                    segment_length = end_idx - start_idx
+                    
+                    # If segment is thinner than line_thickness, mark for removal
+                    if segment_length < line_thickness:
+                        removal_mask[y, start_idx:end_idx] = True
+        
+        return removal_mask
+    
+    def process_scanline_vertical(self, alpha, line_thickness, alpha_tolerance):
+        """
+        Process vertical scanlines: scan column by column, find segments,
+        and remove segments thinner than line_thickness.
+        """
+        h, w = alpha.shape
+        removal_mask = np.zeros_like(alpha, dtype=bool)
+        
+        for x in range(w):
+            col = alpha[:, x]
+            # Find segments where alpha >= alpha_tolerance
+            above_threshold = col >= alpha_tolerance
+            
+            # Find segment boundaries
+            # Start of segment: transition from False to True
+            segment_starts = np.where(np.diff(np.concatenate(([False], above_threshold, [False]))))[0]
+            
+            # Process pairs of start/end indices
+            for i in range(0, len(segment_starts), 2):
+                if i + 1 < len(segment_starts):
+                    start_idx = segment_starts[i]
+                    end_idx = segment_starts[i + 1]
+                    segment_length = end_idx - start_idx
+                    
+                    # If segment is thinner than line_thickness, mark for removal
+                    if segment_length < line_thickness:
+                        removal_mask[start_idx:end_idx, x] = True
+        
+        return removal_mask
+    
+    def process(self, image, line_thickness=2, horizontal=True, vertical=True, alpha_tolerance=0.5, preserve_alpha=True):
+        """
+        Remove thin lines from alpha channel using scanline-based processing.
+        
+        Scans horizontally and/or vertically, finding segments of consecutive pixels
+        that meet the alpha tolerance threshold, and removes segments thinner than
+        the specified line_thickness.
         """
         # Handle different possible image formats
         if isinstance(image, torch.Tensor):
@@ -76,51 +137,29 @@ class AlphaRemoveThinLinesNode:
         # Extract alpha channel
         original_alpha = arr[..., 3].astype(np.float32) / 255.0
         
-        # Convert to binary mask (threshold at 0.5)
-        # Pixels with alpha > 0.5 are considered opaque, <= 0.5 are transparent
-        binary_mask = (original_alpha > 0.5).astype(bool)
+        # Start with all pixels marked as keep
+        keep_mask = np.ones_like(original_alpha, dtype=bool)
         
-        # Create structure element based on line_thickness
-        # This determines how thick a line needs to be to survive
-        base_structure = ndimage.generate_binary_structure(2, 2)
+        # Process horizontal scanlines first (if enabled)
+        if horizontal:
+            horizontal_removal = self.process_scanline_horizontal(original_alpha, line_thickness, alpha_tolerance)
+            keep_mask = keep_mask & ~horizontal_removal
         
-        # Calculate structure size: line_thickness determines the kernel radius
-        # For a line_thickness of N, we need a structure that's roughly 2*N+1 in diameter
-        # to remove lines thinner than that
-        if line_thickness == 1:
-            structure = np.array([[1]], dtype=bool)
-        elif line_thickness <= 3:
-            # Use base 3x3 structure
-            structure = base_structure
-        else:
-            # Expand structure to handle thicker lines
-            # For line_thickness N, we want to remove lines thinner than N pixels
-            iterations_needed = (line_thickness - 1) // 2
-            structure = ndimage.iterate_structure(base_structure, iterations_needed)
+        # Process vertical scanlines (if enabled)
+        if vertical:
+            # Use the current state (after horizontal processing if it was done)
+            current_alpha = np.where(keep_mask, original_alpha, 0.0)
+            vertical_removal = self.process_scanline_vertical(current_alpha, line_thickness, alpha_tolerance)
+            keep_mask = keep_mask & ~vertical_removal
         
-        # Apply morphological opening: erosion followed by dilation
-        # This removes thin lines and protrusions while preserving larger blobs
-        processed_mask = binary_mask.copy()
-        
-        for _ in range(iterations):
-            # Step 1: Erosion - shrinks all regions, breaks thin connections
-            eroded = ndimage.binary_erosion(processed_mask, structure=structure)
-            
-            # Step 2: Dilation - restores size of larger blobs (but not removed thin lines)
-            processed_mask = ndimage.binary_dilation(eroded, structure=structure)
-        
-        # Convert back to float alpha
-        new_alpha = processed_mask.astype(np.float32)
-        
-        # If preserve_alpha is True, blend with original alpha to maintain smooth transitions
-        # This helps preserve anti-aliased edges
+        # Generate final alpha channel
         if preserve_alpha:
-            # For pixels that remain opaque, use original alpha value
+            # For pixels that remain, use original alpha value
             # For pixels that were removed, set to 0
-            new_alpha = np.where(processed_mask, original_alpha, 0.0)
+            new_alpha = np.where(keep_mask, original_alpha, 0.0)
         else:
             # Hard binary: either fully opaque or fully transparent
-            new_alpha = new_alpha
+            new_alpha = keep_mask.astype(np.float32)
         
         # Update alpha channel in the image array
         arr[..., 3] = np.clip(new_alpha * 255.0, 0, 255).astype(np.uint8)
